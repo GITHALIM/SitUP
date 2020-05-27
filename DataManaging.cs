@@ -1,120 +1,84 @@
-﻿/**
+/**
  * standard 배열에 임의값 넣어놨음 수정바람
  */
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System;
 using UnityEngine;
 using UnityEngine.UI;
 
 
 public class DataManaging : MonoBehaviour
 {
-    string input;
+    public InputField InputField;
 
-    float[] standard = new float[] { 0, 0, 5, 20, 33, 30 };
-    public float[] newData = new float[6];
+    float[] standard = new float[] { 0, 0, 0, 5, 20, 33, 30 };
+    public float[] newData = new float[7];
+    public int[] gradeToday = new int[8];  // 연, 월, 일, 5단계
+    float dailyTotal;
+
     public int currentGrade;
-    public int[] gradeToday = new int[7];  // 월, 일, 5단계
-    public float monthlyTotal;
-    public float dailyTotal;
-    public int monthlyCount;
-    public int dailyCount;
 
-    public static DataManaging DataManaging_Instance;
-
-    private void Awake()
+    // Start is called before the first frame update
+    public void Save(string input)
     {
-        DataManaging_Instance = this;
-    }
-
-    public void ProcessData(string recievedData)
-    {
-        if (recievedData == input)//이전 값과 같다면 입력을 받지 않음. 일단 주기적 입력 전까지는 이렇게 적용
-            return;
-
-        input = recievedData;
-
         //  입력된 데이터를 저장하는 과정
         FileEditing("Data", input);
 
         //  string 배열을 float 배열로 바꾸기
-        var data_values = input.Split(',');
-        for (int i = 0; i < data_values.Length; i++)
-        {
-            newData[i] = float.Parse(data_values[i]);
-        }
-        
-        float total = Calculating();
+        newData = (float[])StringToFloat(input).Clone();
 
         // 등급 나누는 과정
+        float total = Calculating(newData);
         int grade = Grading(total);
-        currentGrade = grade;
 
         //  일이 바뀌었는지 확인
-        bool monthTest = (newData[0] == gradeToday[0]);
-        bool dayTest = (newData[1] == gradeToday[1]);
+
+        bool dayTest = (newData[Constants.idxYear] == gradeToday[Constants.idxYear]) && (newData[Constants.idxMonth] == gradeToday[Constants.idxMonth])&&(newData[Constants.idxDay] == gradeToday[Constants.idxDay]);
 
         if (!dayTest)
         {
-            //  월이 바뀌었는지 확인
-            if (!monthTest)
+            float n = 0;
+
+            for(int i = Constants.idxGrade; i < gradeToday.Length; i++)
             {
-                /**
-                 * 달이 바뀌었다.
-                 * 월별 데이터 일 별 데이터 모두 파일에 쓰고 배열은 초기화해준다.
-                 * 새로운 데이터 시작
-                 * */
-                string dailyData = string.Join(",", gradeToday[0], gradeToday[1], dailyTotal / dailyCount);
-                FileEditing("DailyData", dailyData);
-                dailyTotal = 0;
-                dailyCount = 0;
-
-                string monthlyData = string.Join(",", gradeToday[0], monthlyTotal / monthlyCount);
-                FileEditing("MonthlyData", monthlyData);
-                monthlyTotal = 0;
-                monthlyCount = 0;
-
-                InitDailyGrade();
-
-                gradeToday[grade]++;
-                dailyTotal += total;
-                dailyCount++;
-                monthlyTotal += total;
-                monthlyCount++;
+                n += gradeToday[i];
             }
-            else
-            {
-                /**
-                 * 같은 달에 날짜만 바뀌었다
-                 * 일별 데이터를 파일에 쓰고 초기화한다.
-                 * 다시 들어온 데이터를 저장하기
-                 * 월 별 데이터는 건들이기만 한다.
-                 * */
-                string dailyData = string.Join(",", newData[0],newData[1],dailyTotal/dailyCount);
-                FileEditing("DailyData", dailyData);
-                dailyTotal = 0;
-                dailyCount = 0;
-
-                InitDailyGrade();
-
-                gradeToday[grade]++;
-                dailyTotal += total;
-                dailyCount++;
-                monthlyTotal += total;
-                monthlyCount++;
-            }
+            InitDailyGrade(dailyTotal / n);
+            dailyTotal = 0;
+            dailyTotal += (100 - total);
+            IncreasingGrade(grade);
         }
         else
         {
             /** 같은 날이라는 뜻!
-             *  오늘 데이터, 이번 달 데이터 건들이기 
+             *  오늘 데이터 건들이기 
              **/
-            gradeToday[grade]++;
-            dailyTotal += total;
-            dailyCount++;
-            monthlyTotal += total;
-            monthlyCount++;
+            IncreasingGrade(grade);
+            dailyTotal += (100 - total);
+        }
+    }
+
+    public void InitFile()
+    {
+        if (Application.platform == RuntimePlatform.Android)
+        {
+            try
+            {
+                StreamWriter m1file = new StreamWriter(Application.persistentDataPath + "/" + "Data" + ".csv", true);
+                StreamWriter m2file = new StreamWriter(Application.persistentDataPath + "/" + "DailyData" + ".csv", true);
+                StreamWriter m3file = new StreamWriter(Application.persistentDataPath + "/" + "MonthlyData" + ".csv", true);
+                m1file.Close();
+                m2file.Close();
+                m3file.Close();
+
+                Debug.Log("file successfully made");
+            }
+            catch (DirectoryNotFoundException e)
+            {
+                Debug.Log("failed to make file");
+            }
         }
     }
 
@@ -133,18 +97,19 @@ public class DataManaging : MonoBehaviour
         }
     }
 
-    float Calculating()
+    float Calculating(float[] arr)
     {
+        //  새로운 값 계산하기
         float total = 0;
-        for (int i = 2; i < newData.Length; i++)
+        for (int i = Constants.idxGrade; i < arr.Length; i++)
         {
-            float sum = (newData[i] - standard[i]);
+            float sum = (arr[i] - standard[i]);
             if (sum < 0) sum = sum * (-1);
-            sum = (sum / newData[i]) * 100;
-            total += sum;
+            sum = (sum / standard[i]) * 100;
+            total += sum;                     
         }
-        total = total / (newData.Length - 2);
 
+        total = total / (newData.Length - 3);
         return total;
     }
 
@@ -153,16 +118,30 @@ public class DataManaging : MonoBehaviour
         //  등급 나누기
 
         int grade;  // 등급 배열의 index로 활용
-        if (total < 10) grade = 2;
-        else if (total < 40) grade = 3;
-        else if (total < 60) grade = 4;
-        else if (total < 80) grade = 5;
+        if (total < 10) grade = 3;
+        else if (total < 40) grade = 4;
+        else if (total < 60) grade = 5;
+        else if (total < 80) grade = 6;
         else
         {
-            grade = 6;
+            grade = 7;
         }
 
         return grade;
+    }
+
+    void InitDailyGrade(float total)
+    {
+        string dailyData = string.Join(",", gradeToday);
+        string str = string.Join(",", total.ToString());
+        FileEditing("DailyData", str);
+
+        InitArray(gradeToday);
+
+        gradeToday[Constants.idxYear] = (int)newData[Constants.idxYear];
+        gradeToday[Constants.idxMonth] = (int)newData[Constants.idxMonth];
+        gradeToday[Constants.idxDay] = (int)newData[Constants.idxDay];
+
     }
 
     void IncreasingGrade(int grade)
@@ -170,11 +149,14 @@ public class DataManaging : MonoBehaviour
         gradeToday[grade]++;
     }
 
-    void InitDailyGrade()
+    public float[] StringToFloat(string input)
     {
-        InitArray(gradeToday);
-
-        gradeToday[0] = (int)newData[0];
-        gradeToday[1] = (int)newData[1];
+        var data_values = input.Split(',');
+        for (int i = 0; i < data_values.Length; i++)
+        {
+            newData[i] = float.Parse(data_values[i]);
+        }
+        return newData;
     }
+
 }
